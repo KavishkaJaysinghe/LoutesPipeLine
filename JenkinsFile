@@ -1,8 +1,14 @@
 pipeline {
     agent any
 
-    environment{
+    environment {
         DOCKER_CREDENTIALS_ID = "dockerhub-credentials"
+        DOCKER_IMAGE_BACKEND = 'lotus-backend'  
+        DOCKER_IMAGE_FRONTEND = 'lotus-frontend' 
+        DOCKER_TAG = "${env.BUILD_NUMBER}"
+        AWS_REGION = 'us-east-1'
+        KUBECONFIG = credentials('kubernetes')
+        AWS_CREDENTIALS = credentials('AWS-Credentials')
     }
 
     stages {
@@ -12,94 +18,116 @@ pipeline {
             }
         }
 
-        // stage('Build Backend') {
-        //     steps {
-        //         dir('backend/NoteApp') {  
-        //             script {
-        //                 withCredentials([usernamePassword(credentialsId: 'notekeep-prod-database-credentials', usernameVariable: 'MONGODB_USERNAME', passwordVariable: 'MONGODB_PASSWORD')]) {
-        //                     sh '''#!/bin/bash
-        //                     echo "Building backend with Mongodb database"
-        //                     export MONGODB_USERNAME=$MONGODB_USERNAME
-        //                     export MONGODB_PASSWORD=$MONGODB_PASSWORD
-        //                     mvn clean package
-        //                     '''
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
-        // stage('Backend Tests') {
-        //     steps {
-        //         dir('backend/NoteApp') {
-        //             sh 'mvn test'
-        //         }
-        //     }
-        // }
-        // stage('Build Frontend') {
-        //     steps {
-        //         dir('frontend/note-app') {  
-        //             echo "Building frontend"
-        //             sh 'npm install --save-dev @babel/plugin-proposal-private-property-in-object'
-        //             sh 'npm install react-select' 
-        //             sh 'npm install'
-        //             sh 'CI=false npm run build'
-        //         }
-        //     }
-        // }
-
-        stage('Build Backend image') {
+        // Build Backend Image
+        stage('Build Backend Image') {
             steps {
-                sh 'docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .'
-            }
-        }
-
-        stage('Build Backend image') {
-            steps {
-                sh 'docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .'
-            }
-        }
-
-        stage('Build Frontend image') {
-            steps {
-                sh 'docker build -t madhawarathnayake/note-frontend:latest ./frontend/note-app'
-            }
-        }
-
-        stage('Push Backend image') {
-            steps {
-                dir('backend/NoteApp') {
-                    script{
-                        withCredentials([usernamePassword(credentialsId: 'Docker-Credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                            sh 'docker login -u "$DOCKER_USER" -p "$DOCKER_PASS"'
-                            sh 'docker push madhawarathnayake/note-backend:latest'
-                        }
+                dir('server') {
+                    script {
+                        sh 'docker build -t ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} .'
                     }
                 }
             }
         }
 
-        stage('Push Frontend image') {
+        // Build Frontend Image
+        stage('Build Frontend Image') {
             steps {
-                dir('frontend/note-app') {
-                    script{
-                        withCredentials([usernamePassword(credentialsId: 'Docker-Credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                            sh 'docker login -u "$DOCKER_USER" -p "$DOCKER_PASS"'
-                            sh 'docker push madhawarathnayake/note-frontend:latest'
-                        }
+                dir('client') {
+                    script {
+                        sh 'docker build -t ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG} .'
                     }
                 }
             }
         }
 
-    
-    post {
-        success {
-            echo 'Pipeline executed successfully!'
-     }
-     failure {
-         echo 'Pipeline execution failed!'
-     }
+        // Login to Docker Hub
+        stage('Login to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin'
+                }
+            }
+        }
+
+        // Push Docker Images to Docker Hub
+        stage('Push Docker Images') {
+            steps {
+                script {
+                    // Push Backend Image
+                    sh 'docker push ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}'
+                    sh 'docker tag ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} ${DOCKER_IMAGE_BACKEND}:latest'
+                    sh 'docker push ${DOCKER_IMAGE_BACKEND}:latest'
+
+                    // Push Frontend Image
+                    sh 'docker push ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}'
+                    sh 'docker tag ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG} ${DOCKER_IMAGE_FRONTEND}:latest'
+                    sh 'docker push ${DOCKER_IMAGE_FRONTEND}:latest'
+                }
+            }
+        }
+
+        // Configure AWS
+        stage('Configure AWS') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', 
+                                  credentialsId: AWS_CREDENTIALS, 
+                                  accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
+                                  secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                    sh 'aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID'
+                    sh 'aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY'
+                    sh "aws configure set region ${AWS_REGION}"
+                }
+            }
+        }
+
+        // Test Kubernetes Configuration
+        stage('Test Kubernetes Configuration') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                    sh '''
+                        kubectl --kubeconfig=$KUBECONFIG get nodes
+                        kubectl --kubeconfig=$KUBECONFIG cluster-info
+                        kubectl --kubeconfig=$KUBECONFIG get pods --all-namespaces
+                    '''
+                }
+            }
+        }
+
+        // Deploy to Kubernetes
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                    script {
+                        sh '''
+                            # Update Docker image tags in Kubernetes deployment files
+                            sed -i 's/{{DOCKER_IMAGE_BACKEND}}/${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}/g' kubernetes/backend-deployment.yaml
+                            sed -i 's/{{DOCKER_IMAGE_FRONTEND}}/${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}/g' kubernetes/frontend-deployment.yaml
+
+                            # Apply Kubernetes configurations
+                            kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/namespace.yaml
+                            kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/mongodb-deployment.yaml
+                            kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/backend-deployment.yaml
+                            kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/frontend-deployment.yaml
+                            kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/service.yaml
+                        '''
+                    }
+                }
+            }
+        }
     }
 
+    post {
+        always {
+            sh 'docker logout'
+            cleanWs()
+        }
+
+        success {
+            echo 'Pipeline executed successfully!'
+        }
+
+        failure {
+            echo 'Pipeline execution failed!'
+        }
+    }
 }
