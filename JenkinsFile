@@ -13,34 +13,76 @@ pipeline {
     }
 
     stages {
-        stage('Pull Code from GitHub') {
+
+        stage('Debug Environment') {
             steps {
-                git branch: 'main', url: 'https://github.com/KavishkaJaysinghe/LoutesPipeLine.git', credentialsId: 'Github-Credentials'
+                sh '''
+                    echo "===== DEBUG INFO ====="
+                    echo "Working directory: $(pwd)"
+                    echo "Jenkins workspace: $WORKSPACE"
+                    echo "Docker version: $(docker --version)"
+                    echo "User running Jenkins: $(whoami)"
+                    echo "===== END DEBUG INFO ====="
+                '''
             }
         }
 
-        // Build Backend Image
+        stage('Pull Code from GitHub') {
+            steps {
+                git branch: 'main', url: 'https://github.com/KavishkaJaysinghe/LoutesPipeLine.git', credentialsId: 'Github-Credentials'
+                sh '''
+                    echo "===== REPOSITORY CONTENT ====="
+                    ls -la
+                    echo "===== END REPOSITORY CONTENT ====="
+                '''
+            }
+        }
+
+        // Build Backend Image - Detailed Debug Version
         stage('Build Backend Image') {
             steps {
-                dir('server') {
-                    script {
-                        sh '''
-                            # Print directory contents for debugging
+                script {
+                    sh '''
+                        echo "===== CHECKING SERVER DIRECTORY ====="
+                        if [ ! -d "server" ]; then
+                            echo "ERROR: server directory does not exist!"
+                            echo "Current directory contents:"
                             ls -la
-                            
-                            # Check if Dockerfile exists
-                            if [ ! -f Dockerfile ]; then
-                                echo "Dockerfile not found in server directory!"
-                                exit 1
-                            fi
-                            
-                            # Build with verbose output
-                            docker build -t ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} . --no-cache
-                        '''
-                    }
+                            exit 1
+                        fi
+                        
+                        echo "===== SERVER DIRECTORY CONTENTS ====="
+                        cd server
+                        ls -la
+                        
+                        echo "===== CHECKING FOR DOCKERFILE ====="
+                        if [ ! -f "Dockerfile" ]; then
+                            echo "ERROR: Dockerfile not found in server directory!"
+                            exit 1
+                        fi
+                        
+                        echo "===== DOCKERFILE CONTENTS ====="
+                        cat Dockerfile
+                        
+                        echo "===== DOCKER BUILD COMMAND ====="
+                        echo "Running: docker build -t ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} ."
+                        
+                        echo "===== STARTING DOCKER BUILD ====="
+                        # Try with sudo if permissions might be an issue
+                        docker build -t ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} . || {
+                            echo "===== DOCKER BUILD FAILED ====="
+                            echo "Trying with sudo..."
+                            sudo docker build -t ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} .
+                        }
+                        
+                        echo "===== CHECKING DOCKER IMAGES ====="
+                        docker images | grep lotus-backend
+                    '''
                 }
             }
         }
+
+
 
         // Build Frontend Image
         stage('Build Frontend Image') {
@@ -155,4 +197,25 @@ pipeline {
             echo 'Pipeline execution failed!'
         }
     }
+
+        
+
+    post {
+        failure {
+            echo '''
+                =================================================
+                ================ BUILD FAILED ===================
+                =================================================
+                Check the logs above for detailed error messages.
+                Common issues:
+                1. Missing Dockerfile
+                2. Docker permission issues
+                3. Syntax errors in Dockerfile
+                4. Network connectivity issues
+                5. Docker daemon not running
+                =================================================
+            '''
+        }
+    }
+    
 }
