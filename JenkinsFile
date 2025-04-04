@@ -3,9 +3,9 @@ pipeline {
 
     environment {
         DOCKER_CREDENTIALS_ID = "dockerhub-credentials"
-        DOCKER_IMAGE_BACKEND = 'lotus-backend'  
-        DOCKER_IMAGE_FRONTEND = 'lotus-frontend' 
         DOCKER_USERNAME = "kavishkajaysinghe"
+        DOCKER_IMAGE_BACKEND = "${DOCKER_USERNAME}/lotus-backend"  
+        DOCKER_IMAGE_FRONTEND = "${DOCKER_USERNAME}/lotus-frontend" 
         DOCKER_TAG = "${env.BUILD_NUMBER}"
         AWS_REGION = 'us-east-1'
         KUBECONFIG = credentials('kubernetes')
@@ -20,35 +20,46 @@ pipeline {
         }
 
         // Build Backend Image
-        // Build Backend Image
-stage('Build Backend Image') {
-    steps {
-        dir('server') {
-            script {
-                sh '''
-                    # Print directory contents for debugging
-                    ls -la
-                    
-                    # Check if Dockerfile exists
-                    if [ ! -f Dockerfile ]; then
-                        echo "Dockerfile not found in server directory!"
-                        exit 1
-                    fi
-                    
-                    # Build with verbose output
-                    docker build -t ${DOCKER_USERNAME}/${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} . --no-cache
-                '''
+        stage('Build Backend Image') {
+            steps {
+                dir('server') {
+                    script {
+                        sh '''
+                            # Print directory contents for debugging
+                            ls -la
+                            
+                            # Check if Dockerfile exists
+                            if [ ! -f Dockerfile ]; then
+                                echo "Dockerfile not found in server directory!"
+                                exit 1
+                            fi
+                            
+                            # Build with verbose output
+                            docker build -t ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} . --no-cache
+                        '''
+                    }
+                }
             }
         }
-    }
-}
 
         // Build Frontend Image
         stage('Build Frontend Image') {
             steps {
                 dir('client') {
                     script {
-                        sh 'docker build -t ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG} .'
+                        sh '''
+                            # Print directory contents for debugging
+                            ls -la
+                            
+                            # Check if Dockerfile exists
+                            if [ ! -f Dockerfile ]; then
+                                echo "Dockerfile not found in client directory!"
+                                exit 1
+                            fi
+                            
+                            # Build with verbose output
+                            docker build -t ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG} . --no-cache
+                        '''
                     }
                 }
             }
@@ -57,8 +68,8 @@ stage('Build Backend Image') {
         // Login to Docker Hub
         stage('Login to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    sh 'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin'
+                withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh 'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_HUB_USERNAME" --password-stdin'
                 }
             }
         }
@@ -73,9 +84,9 @@ stage('Build Backend Image') {
                     sh 'docker push ${DOCKER_IMAGE_BACKEND}:latest'
 
                     // Push Frontend Image
-                    sh 'docker push ${DOCKER_USERNAME}/${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}'
-                    sh 'docker tag ${DOCKER_USERNAME}/${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} ${DOCKER_USERNAME}/${DOCKER_IMAGE_BACKEND}:latest'
-                    sh 'docker push ${DOCKER_USERNAME}/${DOCKER_IMAGE_BACKEND}:latest'
+                    sh 'docker push ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}'
+                    sh 'docker tag ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG} ${DOCKER_IMAGE_FRONTEND}:latest'
+                    sh 'docker push ${DOCKER_IMAGE_FRONTEND}:latest'
                 }
             }
         }
@@ -114,8 +125,8 @@ stage('Build Backend Image') {
                     script {
                         sh '''
                             # Update Docker image tags in Kubernetes deployment files
-                            sed -i 's/{{DOCKER_IMAGE_BACKEND}}/${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}/g' kubernetes/backend-deployment.yaml
-                            sed -i 's/{{DOCKER_IMAGE_FRONTEND}}/${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}/g' kubernetes/frontend-deployment.yaml
+                            sed -i "s|{{DOCKER_IMAGE_BACKEND}}|${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}|g" kubernetes/backend-deployment.yaml
+                            sed -i "s|{{DOCKER_IMAGE_FRONTEND}}|${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}|g" kubernetes/frontend-deployment.yaml
 
                             # Apply Kubernetes configurations
                             kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/namespace.yaml
