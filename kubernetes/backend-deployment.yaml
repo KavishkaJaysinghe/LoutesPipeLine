@@ -1,27 +1,40 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: mern-app  
+  namespace: mern-app
 spec:
+  replicas: 2
   selector:
     matchLabels:
       app: backend
-  replicas: 2  
   template:
     metadata:
       labels:
         app: backend
     spec:
       containers:
-      - name: backend
-        image: {{DOCKER_IMAGE_BACKEND}}  
-        ports:
-        - containerPort: 3000  
-        env:
-        - name: MONGO_URI
-          value: mongodb+srv://kavishkajaye:WZhZIJg8mQlqZxRY@lotusislandtours.ruxct.mongodb.net/?retryWrites=true&w=majority&appName=LotusIslandTours
+        - name: backend
+          image: {{DOCKER_IMAGE_BACKEND}}  # Replace this or let CI handle
+          ports:
+            - containerPort: 3000
+          env:
+            - name: MONGO_URI
+              value: mongodb://mongodb:27017/lotusislandtours  # or Atlas URL if used
+            - name: NODE_ENV
+              value: production
 
-        - name: NODE_ENV
-          value: production
-        # Add any additional environment variables your app needs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: mern-app
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 3000
+      targetPort: 3000
+  clusterIP: ClusterIP
