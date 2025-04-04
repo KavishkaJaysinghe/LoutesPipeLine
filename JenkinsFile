@@ -17,11 +17,9 @@ pipeline {
 
         stage('Build Backend') {
             steps {
-                dir('server') {
+                dir('LotusIslandBackend') {
                     script {
-                        // Debugging step: Check if the Dockerfile exists
                         sh 'ls -la'
-                        // Build Docker image for backend
                         sh "docker build --no-cache -t ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} ."
                     }
                 }
@@ -30,11 +28,9 @@ pipeline {
 
         stage('Build Frontend') {
             steps {
-                dir('client') {
+                dir('LoutesIsland_Admin_FrontEnd') {
                     script {
-                        // Debugging step: Check if the Dockerfile exists
                         sh 'ls -la'
-                        // Build Docker image for frontend with no cache
                         sh "docker build --no-cache -t ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG} ."
                     }
                 }
@@ -62,9 +58,9 @@ pipeline {
 
         stage('Configure AWS') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', 
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials',
-                                  accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
+                                  accessKeyVariable: 'AWS_ACCESS_KEY_ID',
                                   secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
                     sh "aws configure set aws_access_key_id ${AWS_ACCESS_KEY_ID}"
                     sh "aws configure set aws_secret_access_key ${AWS_SECRET_ACCESS_KEY}"
@@ -89,9 +85,9 @@ pipeline {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
                     sh '''
-                        sed -i 's/{{DOCKER_IMAGE_BACKEND}}/${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}/' kubernetes/backend-deployment.yaml
-                        sed -i 's/{{DOCKER_IMAGE_FRONTEND}}/${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}/' kubernetes/frontend-deployment.yaml
-                        
+                        sed -i 's|{{DOCKER_IMAGE_BACKEND}}|'"${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}"'|' kubernetes/backend-deployment.yaml
+                        sed -i 's|{{DOCKER_IMAGE_FRONTEND}}|'"${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}"'|' kubernetes/frontend-deployment.yaml
+
                         kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/namespace.yaml
                         kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/mongodb-deployment.yaml
                         kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/backend-deployment.yaml
