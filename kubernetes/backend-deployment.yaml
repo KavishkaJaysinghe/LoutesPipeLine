@@ -17,10 +17,10 @@ spec:
       - name: backend
         image: {{DOCKER_IMAGE_BACKEND}}  
         ports:
-        - containerPort: 5000  
+        - containerPort: 3000  
         env:
         - name: MONGO_URI
-          value: mongodb+srv://diluthrangana:6EepE8bRWt1XA2xR@pipeline-test.ibwmkwt.mongodb.net/?retryWrites=true&w=majority&appName=pipeline-test
+          value: mongodb+srv://kavishkajaye:WZhZIJg8mQlqZxRY@lotusislandtours.ruxct.mongodb.net/?retryWrites=true&w=majority&appName=LotusIslandTours
 
         - name: NODE_ENV
           value: production

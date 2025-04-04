@@ -17,8 +17,8 @@ spec:
       - name: frontend
         image: {{DOCKER_IMAGE_FRONTEND}}  # Don't change - Jenkins will replace this
         ports:
-        - containerPort: 3000  # Match your frontend port
+        - containerPort: 4000  # Match your frontend port
         env:
         - name: REACT_APP_API_URL
-          value: http://backend:5000/api  # Match your backend service name and port
+          value: http://backend:3000/api  # Match your backend service name and port
         # Add any additional environment variables your app needs
