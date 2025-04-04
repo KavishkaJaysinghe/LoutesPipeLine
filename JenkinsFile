@@ -14,61 +14,61 @@ pipeline {
                 checkout scm
             }
         }
+
         stage('Build Backend') {
             steps {
                 dir('server') {
                     script {
                         // Debugging step: Check if the Dockerfile exists
-                        bat 'dir'
-
-                        // Build Docker image for backend with no cache to avoid old layers
-                        bat 'docker build --no-cache -t ${env.DOCKER_IMAGE_BACKEND}:${env.DOCKER_TAG} .'
-
-                        // Optionally, add verbose logging for the build process
-                        bat 'docker build --progress=plain -t ${env.DOCKER_IMAGE_BACKEND}:${env.DOCKER_TAG} .'
+                        sh 'ls -la'
+                        // Build Docker image for backend
+                        sh "docker build --no-cache -t ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} ."
                     }
                 }
             }
         }
+
         stage('Build Frontend') {
             steps {
                 dir('client') {
                     script {
                         // Debugging step: Check if the Dockerfile exists
-                        bat 'dir'
-
+                        sh 'ls -la'
                         // Build Docker image for frontend with no cache
-                        bat 'docker build --no-cache -t ${env.DOCKER_IMAGE_FRONTEND}:${env.DOCKER_TAG} .'
+                        sh "docker build --no-cache -t ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG} ."
                     }
                 }
             }
         }
+
         stage('Login to Docker Hub') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
-                    bat 'echo|set /p="%DOCKER_PASSWORD%" | docker login -u %DOCKER_USERNAME% --password-stdin'
+                    sh 'echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin'
                 }
             }
         }
+
         stage('Push to DockerHub') {
             steps {
-                bat 'docker push ${env.DOCKER_IMAGE_BACKEND}:${env.DOCKER_TAG}'
-                bat 'docker push ${env.DOCKER_IMAGE_FRONTEND}:${env.DOCKER_TAG}'
-                bat 'docker tag ${env.DOCKER_IMAGE_BACKEND}:${env.DOCKER_TAG} ${env.DOCKER_IMAGE_BACKEND}:latest'
-                bat 'docker tag ${env.DOCKER_IMAGE_FRONTEND}:${env.DOCKER_TAG} ${env.DOCKER_IMAGE_FRONTEND}:latest'
-                bat 'docker push ${env.DOCKER_IMAGE_BACKEND}:latest'
-                bat 'docker push ${env.DOCKER_IMAGE_FRONTEND}:latest'
+                sh "docker push ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}"
+                sh "docker push ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}"
+                sh "docker tag ${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG} ${DOCKER_IMAGE_BACKEND}:latest"
+                sh "docker tag ${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG} ${DOCKER_IMAGE_FRONTEND}:latest"
+                sh "docker push ${DOCKER_IMAGE_BACKEND}:latest"
+                sh "docker push ${DOCKER_IMAGE_FRONTEND}:latest"
             }
         }
+
         stage('Configure AWS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', 
                                   credentialsId: 'aws-credentials',
                                   accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
                                   secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                    bat 'aws configure set aws_access_key_id %AWS_ACCESS_KEY_ID%'
-                    bat 'aws configure set aws_secret_access_key %AWS_SECRET_ACCESS_KEY%'
-                    bat "aws configure set region ${AWS_REGION}"
+                    sh "aws configure set aws_access_key_id ${AWS_ACCESS_KEY_ID}"
+                    sh "aws configure set aws_secret_access_key ${AWS_SECRET_ACCESS_KEY}"
+                    sh "aws configure set region ${AWS_REGION}"
                 }
             }
         }
@@ -76,34 +76,36 @@ pipeline {
         stage('Test Kubernetes Configuration') {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    bat '''
-                        kubectl --kubeconfig=%KUBECONFIG% get nodes
-                        kubectl --kubeconfig=%KUBECONFIG% cluster-info
-                        kubectl --kubeconfig=%KUBECONFIG% get pods --all-namespaces
+                    sh '''
+                        kubectl --kubeconfig=$KUBECONFIG get nodes
+                        kubectl --kubeconfig=$KUBECONFIG cluster-info
+                        kubectl --kubeconfig=$KUBECONFIG get pods --all-namespaces
                     '''
                 }
             }
         }
+
         stage('Deploy to Kubernetes') {
             steps {
                 withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-                    bat '''
-                        powershell -Command "(Get-Content kubernetes\\backend-deployment.yaml) -replace '{{DOCKER_IMAGE_BACKEND}}','${env.DOCKER_IMAGE_BACKEND}:${env.DOCKER_TAG}' | Set-Content kubernetes\\backend-deployment.yaml"
-                        powershell -Command "(Get-Content kubernetes\\frontend-deployment.yaml) -replace '{{DOCKER_IMAGE_FRONTEND}}','${env.DOCKER_IMAGE_FRONTEND}:${env.DOCKER_TAG}' | Set-Content kubernetes\\frontend-deployment.yaml"
+                    sh '''
+                        sed -i 's/{{DOCKER_IMAGE_BACKEND}}/${DOCKER_IMAGE_BACKEND}:${DOCKER_TAG}/' kubernetes/backend-deployment.yaml
+                        sed -i 's/{{DOCKER_IMAGE_FRONTEND}}/${DOCKER_IMAGE_FRONTEND}:${DOCKER_TAG}/' kubernetes/frontend-deployment.yaml
                         
-                        kubectl --kubeconfig=%KUBECONFIG% apply -f kubernetes\\namespace.yaml
-                        kubectl --kubeconfig=%KUBECONFIG% apply -f kubernetes\\mongodb-deployment.yaml
-                        kubectl --kubeconfig=%KUBECONFIG% apply -f kubernetes\\backend-deployment.yaml
-                        kubectl --kubeconfig=%KUBECONFIG% apply -f kubernetes\\frontend-deployment.yaml
-                        kubectl --kubeconfig=%KUBECONFIG% apply -f kubernetes\\service.yaml
+                        kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/namespace.yaml
+                        kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/mongodb-deployment.yaml
+                        kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/backend-deployment.yaml
+                        kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/frontend-deployment.yaml
+                        kubectl --kubeconfig=$KUBECONFIG apply -f kubernetes/service.yaml
                     '''
                 }
             }
         }
     }
+
     post {
         always {
-            bat 'docker logout'
+            sh 'docker logout'
             cleanWs()
         }
     }
