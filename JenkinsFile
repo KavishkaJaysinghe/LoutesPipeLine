@@ -71,7 +71,7 @@ pipeline {
 
         stage('Test Kubernetes Configuration') {
             steps {
-                withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                withCredentials([file(credentialsId: 'kubernetes', variable: 'KUBECONFIG')]) {
                     sh '''
                         kubectl --kubeconfig=$KUBECONFIG get nodes
                         kubectl --kubeconfig=$KUBECONFIG cluster-info
